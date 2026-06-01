@@ -1,0 +1,109 @@
+   Compiling daedalus v0.1.0 (/home/setsuna/RM/AutoAim/Simulator)
+warning: use of deprecated type alias `bevy::prelude::EventWriter`: Renamed to `MessageWriter`.
+    --> src/main.rs:1072:15
+     |
+1072 |     mut exit: EventWriter<AppExit>,
+     |               ^^^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/dataset/prelude.rs:150:5
+    |
+150 |     mut tf_pub: ResMut<TopicPublisher<GlobalTransformTopic>>,
+    |     ----^^^^^^
+    |     |
+    |     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/dataset/prelude.rs:152:5
+    |
+152 |     mut m: MeshRayCast,
+    |     ----^
+    |     |
+    |     help: remove this `mut`
+
+warning: unused variable: `dir`
+   --> src/dataset/prelude.rs:168:29
+    |
+168 |                         let dir = corner - camera_global_transform.translation();
+    |                             ^^^ help: if this is intentional, prefix it with an underscore: `_dir`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `tf_pub`
+   --> src/dataset/prelude.rs:150:5
+    |
+150 |     mut tf_pub: ResMut<TopicPublisher<GlobalTransformTopic>>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tf_pub`
+
+warning: unused variable: `m`
+   --> src/dataset/prelude.rs:152:5
+    |
+152 |     mut m: MeshRayCast,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_m`
+
+warning: unused variable: `name`
+   --> src/robomaster/power_rune.rs:740:5
+    |
+740 |     name: Query<&Name>,
+    |     ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+
+warning: struct `ArmorEntry` is never constructed
+ --> src/dataset/writer.rs:9:12
+  |
+9 | pub struct ArmorEntry {
+  |            ^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `image_dir`, `label_dir`, and `seq` are never read
+  --> src/dataset/writer.rs:16:5
+   |
+15 | pub struct DatasetWriter {
+   |            ------------- fields in this struct
+16 |     image_dir: PathBuf,
+   |     ^^^^^^^^^
+17 |     label_dir: PathBuf,
+   |     ^^^^^^^^^
+18 |     seq: u64,
+   |     ^^^
+
+warning: methods `next_frame_name`, `write_entry`, and `save_image` are never used
+  --> src/dataset/writer.rs:37:8
+   |
+21 | impl DatasetWriter {
+   | ------------------ methods in this implementation
+...
+37 |     fn next_frame_name(&mut self) -> String {
+   |        ^^^^^^^^^^^^^^^
+...
+42 |     pub fn write_entry(&mut self, image: &Image, entries: Vec<ArmorEntry>) -> std::io::Result<()> {
+   |            ^^^^^^^^^^^
+...
+64 |     fn save_image(&self, img: &Image, path: &Path) -> std::io::Result<()> {
+   |        ^^^^^^^^^^
+
+warning: field `gizmo_assets` is never read
+   --> src/robomaster/power_rune.rs:638:5
+    |
+633 | struct PowerRuneParam<'w, 's> {
+    |        -------------- field in this struct
+...
+638 |     gizmo_assets: ResMut<'w, Assets<GizmoAsset>>,
+    |     ^^^^^^^^^^^^
+
+warning: `daedalus` (bin "daedalus") generated 11 warnings (run `cargo fix --bin "daedalus" -p daedalus` to apply 6 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.37s
+     Running `target/debug/daedalus`
+[2m2026-05-19T16:02:37.286430Z[0m [32m INFO[0m [2mbevy_diagnostic::system_information_diagnostics_plugin::internal[0m[2m:[0m SystemInfo { os: "Linux (Ubuntu 24.04)", kernel: "6.17.0-23-generic", cpu: "13th Gen Intel(R) Core(TM) i7-13650HX", core_count: "14", memory: "15.2 GiB" }
+[2m2026-05-19T16:02:37.532980Z[0m [32m INFO[0m [2mbevy_render::renderer[0m[2m:[0m AdapterInfo { name: "Intel(R) Graphics (RPL-S)", vendor: 32902, device: 42891, device_type: IntegratedGpu, driver: "Intel open-source Mesa driver", driver_info: "Mesa 25.0.7-0ubuntu0.24.04.2", backend: Vulkan }
+[2m2026-05-19T16:02:38.123432Z[0m [32m INFO[0m [2mbevy_render::batching::gpu_preprocessing[0m[2m:[0m GPU preprocessing is fully supported on this device.
+[2m2026-05-19T16:02:38.134435Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Creating new window RoboMaster Simulator | Actor&Thinker (0v0)
+[2m2026-05-19T16:02:38.199327Z[0m [33m WARN[0m [2msctk_adwaita::buttons[0m[2m:[0m Ignoring unknown button type: 
+[2m2026-05-19T16:12:25.240873Z[0m [32m INFO[0m [2mbevy_render::view::window::screenshot[0m[2m:[0m Screenshot saved to ./autocap-robot-view.png
+[2m2026-05-19T16:12:27.870955Z[0m [32m INFO[0m [2mbevy_render::view::window::screenshot[0m[2m:[0m Screenshot saved to ./autocap-third-person.png
+[2m2026-05-19T16:12:29.200748Z[0m [32m INFO[0m [2mdaedalus::ros2::plugin[0m[2m:[0m Waiting for ROS 2 spin thread to join...
+[2m2026-05-19T16:12:29.226038Z[0m [32m INFO[0m [2mdaedalus::ros2::plugin[0m[2m:[0m ROS 2 thread successfully joined. Safe to exit.

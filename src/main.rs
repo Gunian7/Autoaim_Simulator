@@ -14,14 +14,16 @@ use crate::{
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
 };
 use avian3d::prelude::*;
-use bevy::asset::embedded_asset;
+use bevy::app::AppExit;
+use bevy::asset::{AssetId, Assets, Handle, embedded_asset};
 use bevy::camera::Exposure;
 use bevy::light::light_consts::lux;
 use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
-use bevy::winit::WinitWindows;
 use bevy::{
     anti_alias::fxaa::Fxaa,
+    color::LinearRgba,
+    pbr::{MeshMaterial3d, StandardMaterial},
     input::mouse::MouseMotion,
     prelude::*,
     scene::{SceneInstance, SceneInstanceReady},
@@ -38,6 +40,9 @@ struct LocalInfantry;
 
 #[derive(Component)]
 struct InfantryRoot;
+
+#[derive(Component)]
+struct EnemyInfantry;
 
 #[derive(Resource, PartialEq)]
 struct CameraMode(pub FollowingType);
@@ -78,6 +83,33 @@ enum GameLayer {
 
 #[derive(Resource)]
 struct Cooldown(Timer);
+
+#[derive(Resource, Default)]
+struct ArmorMaterialCache {
+    local: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
+    enemy: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
+}
+
+#[derive(Resource)]
+struct AutoCaptureState {
+    timer: Timer,
+    stage: u8,
+    entered_update: bool,
+}
+
+impl Default for AutoCaptureState {
+    fn default() -> Self {
+        Self {
+            // In background / throttled desktop sessions we may only receive a
+            // handful of update ticks before the window effectively idles.
+            // Keep the initial wait short enough that the robot-view screenshot
+            // is requested before frame progression stalls.
+            timer: Timer::from_seconds(0.75, TimerMode::Once),
+            stage: 0,
+            entered_update: false,
+        }
+    }
+}
 
 /// Creates help text at the bottom of the screen.
 fn create_help_text() -> Text {
@@ -122,53 +154,64 @@ impl Plugin for EmbeddedAssetPlugin {
 }
 
 fn main() {
-    App::new()
-        .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    present_mode: PresentMode::AutoVsync,
-                    name: Some("RoboMaster Simulator | Actor&Thinker".to_string()),
-                    title: "RoboMaster Simulator | Actor&Thinker".to_string(),
-                    fit_canvas_to_parent: true,
-                    ..default()
-                }),
+    let mut app = App::new();
+
+    app.add_plugins((
+        DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                present_mode: PresentMode::AutoVsync,
+                name: Some("RoboMaster Simulator | Actor&Thinker".to_string()),
+                title: "RoboMaster Simulator | Actor&Thinker".to_string(),
+                fit_canvas_to_parent: true,
                 ..default()
             }),
-            EmbeddedAssetPlugin,
-            PhysicsPlugins::default(),
-        ))
-        .add_plugins(ROS2Plugin::default())
-        .add_plugins(PowerRunePlugin)
-        .add_plugins(DatasetPlugin)
-        .insert_resource(CameraMode(FollowingType::Robot))
-        .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
-        .insert_resource(SubstepCount(10))
-        .insert_resource(Cooldown(Timer::from_seconds(0.1, TimerMode::Once)))
-        .add_systems(Startup, (setup, setup_projectile))
-        .add_observer(setup_vehicle)
-        .add_observer(setup_collision)
-        .add_observer(on_hit)
-        .add_observer(on_activate)
-        .add_systems(
-            Update,
-            (
-                update_help_text,
-                following_controls,
-                vehicle_controls,
-                remote_vehicle_controls,
-                gimbal_controls,
-                remote_gimbal_controls,
-                freecam_controls,
-                update_camera_follow,
-                screenshot_on_f2,
-                screenshot_saving,
-            ),
-        )
-        .add_systems(
-            PostUpdate,
-            projectile_launch.after(TransformSystems::Propagate),
-        )
-        .run();
+            ..default()
+        }),
+        EmbeddedAssetPlugin,
+        PhysicsPlugins::default(),
+    ))
+    .add_plugins(ROS2Plugin::default())
+    .add_plugins(PowerRunePlugin)
+    .add_plugins(DatasetPlugin)
+    .insert_resource(bevy::winit::WinitSettings::continuous())
+    .insert_resource(CameraMode(FollowingType::Robot))
+    .init_resource::<ArmorMaterialCache>()
+    .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
+    .insert_resource(SubstepCount(10))
+    .insert_resource(Cooldown(Timer::from_seconds(0.1, TimerMode::Once)))
+    .add_systems(Startup, (setup, setup_projectile))
+    .add_observer(setup_vehicle)
+    .add_observer(setup_collision)
+    .add_observer(on_hit)
+    .add_observer(on_activate)
+    .add_systems(
+        Update,
+        (
+            update_help_text,
+            following_controls,
+            vehicle_controls,
+            remote_vehicle_controls,
+            gimbal_controls,
+            remote_gimbal_controls,
+            freecam_controls,
+            update_camera_follow,
+            auto_capture_screenshots,
+            auto_capture_finish,
+            screenshot_on_f2,
+            screenshot_saving,
+        ),
+    )
+    .add_systems(
+        PostUpdate,
+        projectile_launch.after(TransformSystems::Propagate),
+    );
+
+    if std::env::var("SC_SIM_AUTOCAPTURE").as_deref() == Ok("1") {
+        println!("[autocap] enabled");
+        app.insert_resource(AutoCaptureState::default());
+    }
+
+    app.run();
 }
 
 #[derive(Component)]
@@ -271,7 +314,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         SceneRoot(
             asset_server.load("embedded://daedalus/assets/vehicle.glb#Scene0"),
         ),
-        Transform::from_xyz(0.0, 1.0, 0.0),
+        Transform::from_xyz(0.0, 1.0, 0.0)
+            .with_rotation(Quat::from_euler(EulerRot::YXZ, 0.0, 0.0, 0.0)),
         InfantryRoot,
         LocalInfantry,
     ));
@@ -297,8 +341,14 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         SceneRoot(
             asset_server.load("embedded://daedalus/assets/vehicle.glb#Scene0"),
         ),
-        Transform::from_xyz(1.0, 1.0, 1.0),
+        Transform::from_xyz(0.0, 1.0, -6.0).with_rotation(Quat::from_euler(
+            EulerRot::YXZ,
+            std::f32::consts::PI,
+            0.0,
+            0.0,
+        )),
         InfantryRoot,
+        EnemyInfantry,
     ));
 
     commands.spawn((
@@ -315,7 +365,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Fxaa::default(),
         Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         MainCamera {
-            follow_offset: Vec3::new(0.0, 3.0, 2.0),
+            follow_offset: Vec3::new(0.0, 7.5, 16.0),
         },
         ros2::plugin::MainCamera,
     ));
@@ -324,16 +374,81 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 #[derive(Component, Clone)]
 pub struct Armor(String);
 
+fn armor_material_for_team(
+    handle: &Handle<StandardMaterial>,
+    materials: &mut Assets<StandardMaterial>,
+    cache: &mut ArmorMaterialCache,
+    is_local: bool,
+) -> Handle<StandardMaterial> {
+    let id = handle.id();
+    let cache_map = if is_local {
+        &mut cache.local
+    } else {
+        &mut cache.enemy
+    };
+
+    if let Some(existing) = cache_map.get(&id) {
+        return existing.clone();
+    }
+
+    let Some(original) = materials.get(handle) else {
+        return handle.clone();
+    };
+
+    let mut tinted = original.clone();
+    let (base_color, emissive) = if is_local {
+        (
+            Color::srgb(0.25, 0.45, 1.0),
+            LinearRgba::new(0.10, 0.20, 1.00, 1.0),
+        )
+    } else {
+        (
+            Color::srgb(1.0, 0.20, 0.15),
+            LinearRgba::new(1.00, 0.08, 0.08, 1.0),
+        )
+    };
+    tinted.base_color = base_color;
+    tinted.emissive = emissive;
+    tinted.emissive_exposure_weight = 0.8;
+
+    let tinted_handle = materials.add(tinted);
+    cache_map.insert(id, tinted_handle.clone());
+    tinted_handle
+}
+
+fn tint_armor_recursive(
+    entity: Entity,
+    is_local: bool,
+    children: &Query<&Children>,
+    mesh_materials: &mut Query<&mut MeshMaterial3d<StandardMaterial>>,
+    materials: &mut Assets<StandardMaterial>,
+    cache: &mut ArmorMaterialCache,
+) {
+    if let Ok(mut mesh_material) = mesh_materials.get_mut(entity) {
+        mesh_material.0 =
+            armor_material_for_team(&mesh_material.0, materials, cache, is_local);
+    }
+
+    if let Ok(entity_children) = children.get(entity) {
+        for child in entity_children.iter() {
+            tint_armor_recursive(child, is_local, children, mesh_materials, materials, cache);
+        }
+    }
+}
+
 fn setup_vehicle(
     events: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut armor_material_cache: ResMut<ArmorMaterialCache>,
     root_query: Query<(Entity, Option<&LocalInfantry>), With<InfantryRoot>>,
     secondary_query: Query<&ChildOf, (Without<InfantryRoot>, Without<SceneInstance>)>,
     node_query: Query<
         (Entity, &Name, &ChildOf, &Transform),
         (Without<InfantryRoot>, Without<SceneInstance>),
     >,
+    mut mesh_materials: Query<&mut MeshMaterial3d<StandardMaterial>>,
 ) {
     let root = events.entity;
     if root_query.get(root).is_err() {
@@ -359,7 +474,11 @@ fn setup_vehicle(
         }
         match name.as_str() {
             "BASE" => {
-                ent.insert(InfantryChassis::default());
+                let mut chassis = InfantryChassis::default();
+                if !is_local {
+                    chassis.yaw = std::f32::consts::PI;
+                }
+                ent.insert(chassis);
                 let mut stack = VecDeque::from([(node, name)]);
                 let mut set = HashSet::new();
                 while let Some((e, name)) = stack.pop_front() {
@@ -368,6 +487,14 @@ fn setup_vehicle(
                     }
                     if name.starts_with("ARMOR_") && name.ends_with("_P") {
                         insert_all_child(&mut commands, e, &children, || Armor(name.to_string()));
+                        tint_armor_recursive(
+                            e,
+                            is_local,
+                            &children,
+                            &mut mesh_materials,
+                            &mut materials,
+                            &mut armor_material_cache,
+                        );
                         commands.entity(e).insert(ColliderConstructorHierarchy::new(
                             ColliderConstructor::TrimeshFromMeshWithConfig(
                                 TrimeshFlags::MERGE_DUPLICATE_VERTICES,
@@ -385,9 +512,23 @@ fn setup_vehicle(
                 ent.insert(InfantryGimbal::default());
             }
             "SHOT_DIRECTION" => {
+                let forward_axis = transform.rotation.mul_vec3(Vec3::Y);
+                let up_axis = transform.rotation.mul_vec3(Vec3::Z);
+                let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
+                println!(
+                    "[setup_vehicle] SHOT_DIRECTION translation={:?} yxz=({:.3}, {:.3}, {:.3}) forward_axis={:?} up_axis={:?}",
+                    transform.translation, yaw, pitch, roll, forward_axis, up_axis
+                );
                 ent.insert(InfantryLaunchOffset(transform.clone()));
             }
             "CAM_DIRECTION" => {
+                let forward_axis = transform.rotation.mul_vec3(Vec3::Y);
+                let up_axis = transform.rotation.mul_vec3(Vec3::Z);
+                let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
+                println!(
+                    "[setup_vehicle] CAM_DIRECTION translation={:?} yxz=({:.3}, {:.3}, {:.3}) forward_axis={:?} up_axis={:?}",
+                    transform.translation, yaw, pitch, roll, forward_axis, up_axis
+                );
                 ent.insert(InfantryViewOffset(transform.clone()));
             }
             _ => {}
@@ -730,17 +871,54 @@ fn update_camera_follow(
     view_offset: Single<&InfantryViewOffset, With<LocalInfantry>>,
     mode: Res<CameraMode>,
 ) {
+    let base_transform = infantry.into_inner();
     let gimbal_transform = gimbal.into_inner();
+    let view_offset = &view_offset.into_inner().0;
     let (mut camera_transform, camera_offset) = camera_query.into_inner();
 
     match mode.0 {
         FollowingType::Robot => {
-            camera_transform.translation = infantry.translation
-                + (infantry.rotation * gimbal_transform.rotation) * view_offset.0.translation;
-            camera_transform.rotation = infantry.rotation * gimbal_transform.rotation;
+            let (base_yaw, _, _) = base_transform.rotation.to_euler(EulerRot::YXZ);
+            let (gimbal_local_yaw, gimbal_pitch, _) =
+                gimbal_transform.rotation.to_euler(EulerRot::YXZ);
+
+            let yaw_rotation =
+                Quat::from_euler(EulerRot::YXZ, base_yaw + gimbal_local_yaw, 0.0, 0.0);
+
+            let helper_forward = view_offset.rotation.mul_vec3(Vec3::Y).normalize_or_zero();
+            let helper_forward_flat =
+                Vec3::new(helper_forward.x, 0.0, helper_forward.z).normalize_or_zero();
+            let yaw_forward = if helper_forward_flat != Vec3::ZERO {
+                (yaw_rotation * helper_forward_flat).normalize_or_zero()
+            } else {
+                Vec3::NEG_Z
+            };
+
+            let helper_right = yaw_forward.cross(Vec3::Y).normalize_or_zero();
+            let helper_pitch = helper_forward.y.clamp(-1.0, 1.0).asin();
+            let limited_pitch = (helper_pitch + gimbal_pitch).clamp(-0.04, 0.28);
+            let forward =
+                (yaw_forward * limited_pitch.cos() + Vec3::Y * limited_pitch.sin())
+                    .normalize_or_zero();
+
+            let gimbal_origin =
+                base_transform.translation + base_transform.rotation * gimbal_transform.translation;
+            let helper_mount = gimbal_origin + yaw_rotation * view_offset.translation;
+
+            // Keep the lens close to the camera mount so the frame stays in the
+            // robot's first-person perspective while still avoiding self-clipping.
+            camera_transform.translation = helper_mount
+                + yaw_forward * 0.18
+                + Vec3::Y * 0.10
+                + helper_right * 0.00;
+
+            if forward != Vec3::ZERO {
+                camera_transform.look_to(forward, Vec3::Y);
+            } else {
+                camera_transform.look_to(yaw_forward, Vec3::Y);
+            }
         }
         FollowingType::ThirdPerson => {
-            let base_transform = infantry.into_inner();
             let offset = base_transform.rotation * camera_offset.follow_offset;
             camera_transform.translation = base_transform.translation + offset;
             camera_transform.look_at(base_transform.translation, Vec3::Y);
@@ -800,6 +978,128 @@ fn freecam_controls(
     }
     if keyboard.pressed(KeyCode::KeyJ) {
         camera_transform.translation -= up * speed;
+    }
+}
+
+fn auto_capture_screenshots(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut mode: ResMut<CameraMode>,
+    capturing: Query<(), With<Capturing>>,
+    auto_capture: Option<ResMut<AutoCaptureState>>,
+) {
+    let Some(mut auto_capture) = auto_capture else {
+        return;
+    };
+
+    if !auto_capture.entered_update {
+        println!("[autocap] update system active");
+        auto_capture.entered_update = true;
+        mode.0 = FollowingType::Robot;
+        println!("[autocap] forced initial camera mode to robot");
+    }
+
+    let capturing_count = capturing.iter().count();
+
+    match auto_capture.stage {
+        0 | 2 => {
+            let delta = time.delta();
+            println!(
+                "[autocap] tick stage={} delta={:.3}s elapsed_before={:.3}/{:.3}s capturing_count={}",
+                auto_capture.stage,
+                delta.as_secs_f32(),
+                auto_capture.timer.elapsed_secs(),
+                auto_capture.timer.duration().as_secs_f32(),
+                capturing_count
+            );
+
+            auto_capture.timer.tick(delta);
+
+            println!(
+                "[autocap] tick result stage={} elapsed_after={:.3}/{:.3}s finished={} just_finished={}",
+                auto_capture.stage,
+                auto_capture.timer.elapsed_secs(),
+                auto_capture.timer.duration().as_secs_f32(),
+                auto_capture.timer.is_finished(),
+                auto_capture.timer.just_finished()
+            );
+
+            if !auto_capture.timer.just_finished() {
+                return;
+            }
+
+            match auto_capture.stage {
+                0 => {
+                    println!("[autocap] saving robot view to ./autocap-robot-view.png");
+                    commands
+                        .spawn(Screenshot::primary_window())
+                        .observe(save_to_disk("./autocap-robot-view.png"));
+                    auto_capture.stage = 1;
+                    println!("[autocap] waiting for robot screenshot to finish before switching mode");
+                }
+                2 => {
+                    println!("[autocap] saving third person view to ./autocap-third-person.png");
+                    commands
+                        .spawn(Screenshot::primary_window())
+                        .observe(save_to_disk("./autocap-third-person.png"));
+                    auto_capture.stage = 3;
+                    auto_capture.timer = Timer::from_seconds(0.50, TimerMode::Once);
+                    println!("[autocap] capture stage advanced to finish wait, next stage=3");
+                }
+                _ => {}
+            }
+        }
+        1 => {
+            if capturing_count == 0 {
+                mode.0 = FollowingType::ThirdPerson;
+                auto_capture.stage = 2;
+                auto_capture.timer = Timer::from_seconds(0.20, TimerMode::Once);
+                println!(
+                    "[autocap] robot capture completed, switched camera mode to third-person, settling stage=2"
+                );
+            }
+        }
+        3 => {}
+        _ => {
+            println!(
+                "[autocap] encountered unknown autocap stage={}, ignoring",
+                auto_capture.stage
+            );
+        }
+    }
+}
+
+fn auto_capture_finish(
+    time: Res<Time>,
+    capturing: Query<(), With<Capturing>>,
+    auto_capture: Option<ResMut<AutoCaptureState>>,
+    mut exit: EventWriter<AppExit>,
+) {
+    let Some(mut auto_capture) = auto_capture else {
+        return;
+    };
+
+    if auto_capture.stage != 3 {
+        return;
+    }
+
+    let delta = time.delta();
+    auto_capture.timer.tick(delta);
+    let capturing_count = capturing.iter().count();
+
+    println!(
+        "[autocap] finish tick stage={} delta={:.3}s elapsed={:.3}/{:.3}s finished={} capturing_count={}",
+        auto_capture.stage,
+        delta.as_secs_f32(),
+        auto_capture.timer.elapsed_secs(),
+        auto_capture.timer.duration().as_secs_f32(),
+        auto_capture.timer.is_finished(),
+        capturing_count
+    );
+
+    if auto_capture.timer.is_finished() && capturing_count == 0 {
+        println!("[autocap] captures completed, exiting simulator");
+        exit.write(AppExit::Success);
     }
 }
 

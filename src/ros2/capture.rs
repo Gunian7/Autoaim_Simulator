@@ -1,6 +1,7 @@
 use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use crate::util::image::compress_image;
+use crate::util::shmem::ShmFrameWriter;
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::Exposure;
 use bevy::post_process::bloom::Bloom;
@@ -28,6 +29,15 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use std::sync::OnceLock;
+
+/// Global shared-memory writer, initialised once at startup when the capture
+/// config is available.  A global is used because the writer is created in the
+/// main app (Startup) but consumed in the Render sub-app (Render schedule).
+pub(crate) static SHM_WRITER: OnceLock<std::sync::Mutex<Option<ShmFrameWriter>>> =
+    OnceLock::new();
 
 #[derive(Resource, Clone)]
 pub struct CaptureConfig {
@@ -202,6 +212,20 @@ fn receive_image_from_buffer(
                         bevy_image.data = Some(image_data);
                         bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
                     };
+
+                    // Write frame to shared memory for Sc_vision
+                    if let Some(shm_mutex) = SHM_WRITER.get() {
+                        if let Ok(guard) = shm_mutex.lock() {
+                            if let Some(ref writer) = *guard {
+                                let ts = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_nanos() as i64;
+                                writer.write_frame(&image_data, ts);
+                            }
+                        }
+                    }
+
                     let optical_frame_hdr = Header {
                         stamp: Clock::to_builtin_time(
                             &ctx.clock.lock().unwrap().get_now().unwrap(),
@@ -315,6 +339,16 @@ fn setup_capture_scene(
         Hdr,
         CaptureCamera,
     ));
+
+    // Initialise shared-memory writer for Sc_vision.
+    // This runs in the main app (Startup) – the writer is stored in a global
+    // OnceLock so the Render sub-app can access it later.
+    let shm_writer = ShmFrameWriter::open(config.width, config.height);
+    let _ = SHM_WRITER.set(std::sync::Mutex::new(Some(shm_writer)));
+    info!(
+        "ShmFrameWriter initialised ({}x{}), ready for Sc_vision consumer",
+        config.width, config.height
+    );
 }
 
 fn sync_camera(

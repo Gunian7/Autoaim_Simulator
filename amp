@@ -1,0 +1,18 @@
+[2m2026-05-19T04:58:17.430170Z[0m [32m INFO[0m [2mbevy_diagnostic::system_information_diagnostics_plugin::internal[0m[2m:[0m SystemInfo { os: "Linux (Ubuntu 24.04)", kernel: "6.17.0-23-generic", cpu: "13th Gen Intel(R) Core(TM) i7-13650HX", core_count: "14", memory: "15.2 GiB" }
+[2m2026-05-19T04:58:17.430170Z[0m [32m INFO[0m [2mbevy_diagnostic::system_information_diagnostics_plugin::internal[0m[2m:[0m SystemInfo { os: "Linux (Ubuntu 24.04)", kernel: "6.17.0-23-generic", cpu: "13th Gen Intel(R) Core(TM) i7-13650HX", core_count: "14", memory: "15.2 GiB" }
+[2m2026-05-19T04:58:17.510193Z[0m [32m INFO[0m [2mbevy_render::renderer[0m[2m:[0m AdapterInfo { name: "Intel(R) Graphics (RPL-S)", vendor: 32902, device: 42891, device_type: IntegratedGpu, driver: "Intel open-source Mesa driver", driver_info: "Mesa 25.0.7-0ubuntu0.24.04.2", backend: Vulkan }
+[2m2026-05-19T04:58:17.510193Z[0m [32m INFO[0m [2mbevy_render::renderer[0m[2m:[0m AdapterInfo { name: "Intel(R) Graphics (RPL-S)", vendor: 32902, device: 42891, device_type: IntegratedGpu, driver: "Intel open-source Mesa driver", driver_info: "Mesa 25.0.7-0ubuntu0.24.04.2", backend: Vulkan }
+[2m2026-05-19T04:58:17.619191Z[0m [32m INFO[0m [2mbevy_render::batching::gpu_preprocessing[0m[2m:[0m GPU preprocessing is fully supported on this device.
+[2m2026-05-19T04:58:17.619191Z[0m [32m INFO[0m [2mbevy_render::batching::gpu_preprocessing[0m[2m:[0m GPU preprocessing is fully supported on this device.
+[2m2026-05-19T04:58:17.621102Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Creating new window RoboMaster Simulator | Actor&Thinker (0v0)
+[2m2026-05-19T04:58:17.621102Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Creating new window RoboMaster Simulator | Actor&Thinker (0v0)
+[2m2026-05-19T04:58:17.674246Z[0m [33m WARN[0m [2msctk_adwaita::buttons[0m[2m:[0m Ignoring unknown button type: 
+[2m2026-05-19T04:58:17.674246Z[0m [33m WARN[0m [2msctk_adwaita::buttons[0m[2m:[0m Ignoring unknown button type: 
+[2m2026-05-19T04:58:22.297190Z[0m [32m INFO[0m [2mbevy_render::view::window::screenshot[0m[2m:[0m Screenshot saved to ./autocap-robot-view.png
+[2m2026-05-19T04:58:22.297190Z[0m [32m INFO[0m [2mbevy_render::view::window::screenshot[0m[2m:[0m Screenshot saved to ./autocap-robot-view.png
+[2m2026-05-19T04:58:24.020652Z[0m [32m INFO[0m [2mbevy_render::view::window::screenshot[0m[2m:[0m Screenshot saved to ./autocap-third-person.png
+[2m2026-05-19T04:58:24.020652Z[0m [32m INFO[0m [2mbevy_render::view::window::screenshot[0m[2m:[0m Screenshot saved to ./autocap-third-person.png
+[2m2026-05-19T04:58:25.526824Z[0m [32m INFO[0m [2mdaedalus::ros2::plugin[0m[2m:[0m Waiting for ROS 2 spin thread to join...
+[2m2026-05-19T04:58:25.526824Z[0m [32m INFO[0m [2mdaedalus::ros2::plugin[0m[2m:[0m Waiting for ROS 2 spin thread to join...
+[2m2026-05-19T04:58:25.536355Z[0m [32m INFO[0m [2mdaedalus::ros2::plugin[0m[2m:[0m ROS 2 thread successfully joined. Safe to exit.
+[2m2026-05-19T04:58:25.536355Z[0m [32m INFO[0m [2mdaedalus::ros2::plugin[0m[2m:[0m ROS 2 thread successfully joined. Safe to exit.

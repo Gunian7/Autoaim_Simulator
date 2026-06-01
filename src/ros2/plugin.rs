@@ -254,8 +254,8 @@ impl Plugin for ROS2Plugin {
             .insert_resource(StopSignal(signal_arc.clone()))
             .add_plugins(RosCapturePlugin {
                 config: CaptureConfig {
-                    width: 1440,
-                    height: 1080,
+                    width: 1280,
+                    height: 1024,
                     texture_format: TextureFormat::bevy_default(),
                     fov_y: PI / 180.0 * 45.0,
                 },
