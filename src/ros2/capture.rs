@@ -39,6 +39,18 @@ use std::sync::OnceLock;
 pub(crate) static SHM_WRITER: OnceLock<std::sync::Mutex<Option<ShmFrameWriter>>> =
     OnceLock::new();
 
+/// Global gimbal state, updated each frame by `update_shm_gimbal`.
+pub(crate) static SHM_GIMBAL: OnceLock<std::sync::Mutex<ShmGimbalState>> = OnceLock::new();
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ShmGimbalState {
+    pub yaw: f32,
+    pub pitch: f32,
+    pub roll: f32,
+    pub bullet_speed: f32,
+    pub mode: i32,
+}
+
 #[derive(Resource, Clone)]
 pub struct CaptureConfig {
     pub width: u32,
@@ -213,7 +225,13 @@ fn receive_image_from_buffer(
                         bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
                     };
 
-                    // Write frame to shared memory for Sc_vision
+                    // Read current gimbal state from global
+                    let gimbal_state = SHM_GIMBAL
+                        .and_then(|m| m.lock().ok())
+                        .map(|g| *g)
+                        .unwrap_or_default();
+
+                    // Write frame + metadata to shared memory for Sc_vision
                     if let Some(shm_mutex) = SHM_WRITER.get() {
                         if let Ok(guard) = shm_mutex.lock() {
                             if let Some(ref writer) = *guard {
@@ -221,7 +239,15 @@ fn receive_image_from_buffer(
                                     .duration_since(UNIX_EPOCH)
                                     .unwrap_or_default()
                                     .as_nanos() as i64;
-                                writer.write_frame(&image_data, ts);
+                                writer.write_frame(
+                                    &image_data,
+                                    ts,
+                                    gimbal_state.yaw,
+                                    gimbal_state.pitch,
+                                    gimbal_state.roll,
+                                    gimbal_state.bullet_speed,
+                                    gimbal_state.mode,
+                                );
                             }
                         }
                     }

@@ -1,7 +1,7 @@
-use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
+use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin, SHM_GIMBAL, ShmGimbalState};
 use crate::ros2::topic::*;
 use crate::{
-    InfantryGimbal, InfantryViewOffset, LocalInfantry, arc_mutex, publisher,
+    InfantryGimbal, InfantryRoot, InfantryViewOffset, LocalInfantry, arc_mutex, publisher,
     robomaster::power_rune::{PowerRune, RuneIndex},
 };
 use bevy::prelude::*;
@@ -210,6 +210,28 @@ fn capture_rune(
     });
 }
 
+/// Reads the local gimbal yaw/pitch every frame and stores it in the global
+/// SHM_GIMBAL so that the async capture task can pass it to shared memory.
+fn update_shm_gimbal_state(
+    infantry: Single<&Children, (With<LocalInfantry>, With<InfantryRoot>)>,
+    gimbal_q: Query<&Transform, With<InfantryGimbal>>,
+) {
+    // Walk the local infantry's children to find its gimbal.
+    let gimbal_entity = infantry.iter().find(|e| gimbal_q.contains(*e));
+    let Ok(gimbal_transform) = gimbal_entity.map(|e| gimbal_q.get(e)).transpose() else { return; };
+    let Some(gimbal_transform) = gimbal_transform else { return; };
+
+    let state = SHM_GIMBAL.get().and_then(|m| m.lock().ok());
+    if let Some(mut g) = state {
+        let (yaw, pitch, roll) = gimbal_transform.rotation.to_euler(EulerRot::YXZ);
+        g.yaw = yaw;
+        g.pitch = pitch;
+        g.roll = roll;
+        g.bullet_speed = 25.0; // fixed bullet speed for simulation
+        g.mode = 1;            // auto_aim mode
+    }
+}
+
 fn cleanup_ros2_system(
     mut exit: MessageReader<AppExit>,
     stop_signal: Res<StopSignal>,
@@ -250,6 +272,9 @@ impl Plugin for ROS2Plugin {
 
         let clock = arc_mutex!(Clock::create(SystemTime).unwrap());
 
+        // Initialise shared-memory gimbal state so the capture thread can read it.
+        let _ = SHM_GIMBAL.set(std::sync::Mutex::new(ShmGimbalState::default()));
+
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
             .add_plugins(RosCapturePlugin {
@@ -267,6 +292,10 @@ impl Plugin for ROS2Plugin {
                 },
             })
             .add_systems(Last, cleanup_ros2_system)
+            .add_systems(
+                Update,
+                update_shm_gimbal_state.before(capture_rune),
+            )
             .add_systems(Update, capture_rune.after(TransformSystems::Propagate))
             .insert_resource(SpinThreadHandle(Some(thread::spawn(move || {
                 while !signal_arc.load(Ordering::Acquire) {

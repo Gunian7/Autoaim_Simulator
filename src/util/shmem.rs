@@ -12,10 +12,15 @@ unsafe impl Sync for ShmFrameWriter {}
 /// offset  size   field
 /// 0       4      width  (u32)
 /// 4       4      height (u32)
-/// 8       8      timestamp_ns (i64, CLOCK_MONOTONIC)
-/// 16      N      pixel data (RGB8, row-major, width*height*3 bytes)
+/// 8       8      timestamp_ns (i64)
+/// 16      4      gimbal_yaw   (f32, rad)
+/// 20      4      gimbal_pitch (f32, rad)
+/// 24      4      gimbal_roll  (f32, rad)
+/// 28      4      bullet_speed (f32)
+/// 32      4      mode         (i32: 0=idle,1=auto_aim,2=small_buff,3=big_buff,4=outpost)
+/// 36      N      pixel data (RGB8, row-major, width*height*3 bytes)
 ///
-/// Total size = 16 + width * height * 3
+/// Total size = 36 + width * height * 3
 pub struct ShmFrameWriter {
     fd: i32,
     ptr: *mut u8,
@@ -91,8 +96,27 @@ impl ShmFrameWriter {
         }
     }
 
+    /// Gimbal metadata layout offset constants.
+    const GIMBAL_YAW_OFFSET: usize   = 16; // f32
+    const GIMBAL_PITCH_OFFSET: usize = 20; // f32
+    const GIMBAL_ROLL_OFFSET: usize  = 24; // f32
+    const BULLET_SPEED_OFFSET: usize = 28; // f32
+    const MODE_OFFSET: usize         = 32; // i32
+    const PIXEL_OFFSET: usize        = 36; // pixel data starts
+
     /// Write a frame. `data` must be `width * height * 3` bytes of RGB8.
-    pub fn write_frame(&self, data: &[u8], timestamp_ns: i64) {
+    /// `gimbal_yaw/pitch/roll` in radians, `bullet_speed` in m/s,
+    /// `mode` matches io::Mode enum (0=idle,1=auto_aim,...).
+    pub fn write_frame(
+        &self,
+        data: &[u8],
+        timestamp_ns: i64,
+        gimbal_yaw: f32,
+        gimbal_pitch: f32,
+        gimbal_roll: f32,
+        bullet_speed: f32,
+        mode: i32,
+    ) {
         if self.closed.load(Ordering::Relaxed) {
             return;
         }
@@ -111,15 +135,24 @@ impl ShmFrameWriter {
             libc::sem_wait(sem);
         }
 
-        // Write timestamp
         unsafe {
+            // Timestamp (offset 8)
             ptr::write((self.ptr as *mut i64).add(1), timestamp_ns);
-        }
 
-        // Write pixel data
-        unsafe {
-            let dst = self.ptr.add(16);
-            ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
+            // Gimbal yaw/pitch/roll (offsets 16,20,24)
+            let base_f32 = self.ptr.add(Self::GIMBAL_YAW_OFFSET) as *mut f32;
+            ptr::write(base_f32, gimbal_yaw);
+            ptr::write(base_f32.add(1), gimbal_pitch);
+            ptr::write(base_f32.add(2), gimbal_roll);
+
+            // Bullet speed (offset 28)
+            ptr::write(self.ptr.add(Self::BULLET_SPEED_OFFSET) as *mut f32, bullet_speed);
+
+            // Mode (offset 32)
+            ptr::write(self.ptr.add(Self::MODE_OFFSET) as *mut i32, mode);
+
+            // Pixel data (offset 36)
+            ptr::copy_nonoverlapping(data.as_ptr(), self.ptr.add(Self::PIXEL_OFFSET), data.len());
         }
 
         // Post semaphore to signal consumer
@@ -129,7 +162,7 @@ impl ShmFrameWriter {
     }
 
     fn frame_size(width: u32, height: u32) -> usize {
-        16 + (width as usize) * (height as usize) * 3
+        36 + (width as usize) * (height as usize) * 3
     }
 }
 
